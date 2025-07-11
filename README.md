@@ -158,6 +158,78 @@ The UI automatically discovers Claude Code projects from `~/.claude/projects/` a
 
 
 
+## MCP Server Integration
+
+Claude Code UI includes both sync and async MCP (Model Context Protocol) servers that allow other Claude sessions to execute Claude Code commands programmatically.
+
+### Available MCP Servers
+
+#### 1. Sync MCP Server (`claude-code-ui`)
+- **Port**: 3014
+- **Tools**: `claude_code` - Execute Claude Code commands synchronously
+- **Use case**: Direct command execution with immediate response
+
+#### 2. Async MCP Server (`claude-code-ui-async`) 
+- **Port**: 3015
+- **Tools**: `claude_code_async` - Execute Claude Code commands asynchronously with Matrix notifications
+- **Features**:
+  - Matrix bot integration for notifications
+  - Letta agent memory management
+  - Task persistence and tracking
+  - Room-based notifications via @claudecode:matrix.oculair.ca
+
+### MCP Configuration
+
+Add to your Claude Code configuration:
+
+```json
+{
+  "mcpServers": {
+    "claude-code-ui": {
+      "command": "node",
+      "args": ["mcp-server/ui-server.mjs", "--http"],
+      "env": {
+        "CLAUDE_UI_SERVER_URL": "http://localhost:3012",
+        "MCP_HTTP_PORT": "3014"
+      }
+    },
+    "claude-code-ui-async": {
+      "command": "node", 
+      "args": ["mcp-server/dist/ui-server-full.js", "--http"],
+      "env": {
+        "CLAUDE_UI_SERVER_URL": "http://localhost:3012",
+        "MCP_HTTP_PORT": "3015",
+        "MATRIX_HOMESERVER_URL": "https://matrix.oculair.ca",
+        "MATRIX_ACCESS_TOKEN": "your_matrix_token",
+        "MATRIX_USER_ID": "@your_bot:matrix.server",
+        "AGENT_ROOM_MAPPING_URL": "http://localhost:3002",
+        "LETTA_API_URL": "https://your.letta.server"
+      }
+    }
+  }
+}
+```
+
+### Usage Examples
+
+**Sync execution:**
+```javascript
+await callTool('claude_code', {
+  prompt: 'Create a new React component',
+  workFolder: '/path/to/project'
+});
+```
+
+**Async execution with notifications:**
+```javascript
+await callTool('claude_code_async', {
+  prompt: 'Run tests and fix any issues',
+  agentId: 'agent-your-id',
+  workFolder: '/path/to/project',
+  lettaUrl: 'https://your.letta.server'
+});
+```
+
 ### Contributing
 
 We welcome contributions! Please follow these guidelines:
