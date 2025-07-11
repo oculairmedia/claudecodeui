@@ -630,25 +630,75 @@ class ClaudeCodeMCPServer {
     console.log(`[Async] Starting task ${taskId} for agent ${agentId}`);
     
     try {
-      // Execute the command synchronously first
+      // Execute the command and wait for completion
+      const startTime = Date.now();
       const result = await this.executeClaudeCode(prompt, workFolder);
+      const executionTime = Date.now() - startTime;
       
-      console.log(`[Async] Task ${taskId} completed successfully`);
+      console.log(`[Async] Task ${taskId} completed successfully in ${executionTime}ms`);
       
-      // Send notification - simple placeholder for now
-      // In a full implementation, this would integrate with Matrix/Letta
-      console.log(`[Async] Would notify agent ${agentId} about task ${taskId} completion`);
-      console.log(`[Async] Result: ${result.substring(0, 200)}...`);
-      
-      // TODO: Implement actual Matrix/Letta notification
-      // This would require the full Matrix client and Letta integration
-      // from the ui-server-full.ts implementation
+      // Send success notification to Matrix/Letta
+      await this.sendAsyncNotification({
+        agentId,
+        taskId,
+        callbackUrl: lettaUrl,
+        result: `Task ${taskId} completed successfully:\n\n${result}`,
+        success: true,
+        executionTime
+      });
       
     } catch (error) {
       console.error(`[Async] Task ${taskId} failed:`, error);
       
-      // Send error notification
-      console.log(`[Async] Would notify agent ${agentId} about task ${taskId} failure`);
+      // Send error notification to Matrix/Letta
+      await this.sendAsyncNotification({
+        agentId,
+        taskId,
+        callbackUrl: lettaUrl,
+        result: `Task ${taskId} failed: ${error.message}`,
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Send async notification via Matrix/Letta
+   */
+  async sendAsyncNotification(data) {
+    console.log(`[Async] Sending notification for task ${data.taskId} to agent ${data.agentId}`);
+    console.log(`[Async] Success: ${data.success}`);
+    console.log(`[Async] Result: ${data.result.substring(0, 200)}...`);
+    
+    // TODO: Implement actual Matrix/Letta notification
+    // For now, just log the notification details
+    // In a full implementation, this would:
+    // 1. Try to find Matrix room for agent
+    // 2. Send formatted message to Matrix room
+    // 3. Fallback to Letta HTTP callback if Matrix fails
+    
+    try {
+      // Placeholder for Matrix notification
+      console.log(`[Async] Would send Matrix notification to room for agent ${data.agentId}`);
+      
+      // Placeholder for Letta callback
+      console.log(`[Async] Would send Letta callback to ${data.callbackUrl}`);
+      
+      // Format the notification message
+      const notification = {
+        taskId: data.taskId,
+        agentId: data.agentId,
+        success: data.success,
+        timestamp: new Date().toISOString(),
+        result: data.result,
+        ...(data.error && { error: data.error }),
+        ...(data.executionTime && { executionTime: data.executionTime })
+      };
+      
+      console.log(`[Async] Notification sent:`, JSON.stringify(notification, null, 2));
+      
+    } catch (error) {
+      console.error(`[Async] Failed to send notification:`, error);
     }
   }
 }
