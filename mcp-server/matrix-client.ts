@@ -31,7 +31,7 @@ export class MatrixBotService {
   private isInitialized = false;
 
   constructor(private config: MatrixConfig) {
-    this.storage = new SimpleFsStorageProvider("/tmp/matrix-bot-storage.json");
+    this.storage = new SimpleFsStorageProvider("./matrix-bot-storage.json");
     this.client = new MatrixClient(config.homeserverUrl, config.accessToken, this.storage);
     
     if (config.autoJoinRooms) {

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "claude-code-ui": {
+      "command": "node",
+      "args": ["mcp-server/ui-server.js"],
+      "env": {
+        "CLAUDE_UI_SERVER_URL": "http://localhost:3000"
+      }
+    }
+  }
+}

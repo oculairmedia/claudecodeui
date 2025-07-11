@@ -1,0 +1,30 @@
+{
+  "name": "claude-code-ui-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Claude Code UI with async support",
+  "type": "module",
+  "main": "dist/ui-server-full.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/ui-server-full.js --http",
+    "dev": "node ui-server.mjs --http",
+    "async": "npm run build && node dist/ui-server-full.js --http"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.1.0",
+    "express": "^4.21.2",
+    "matrix-bot-sdk": "^0.7.1",
+    "node-fetch": "^3.3.2",
+    "ws": "^8.18.0",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.15.17",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.8.3"
+  }
+}
