@@ -222,4 +222,4 @@ class ClaudeStatusTracker {
 // Create singleton instance
 const claudeStatusTracker = new ClaudeStatusTracker();
 
-module.exports = claudeStatusTracker;
+export default claudeStatusTracker;
