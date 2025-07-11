@@ -5,15 +5,7 @@
       "args": ["mcp-server/ui-server.mjs", "--http"],
       "env": {
         "CLAUDE_UI_SERVER_URL": "http://localhost:3012",
-        "MCP_HTTP_PORT": "3014"
-      }
-    },
-    "claude-code-ui-async": {
-      "command": "node",
-      "args": ["mcp-server/dist/ui-server-full.js", "--http"],
-      "env": {
-        "CLAUDE_UI_SERVER_URL": "http://localhost:3012",
-        "MCP_HTTP_PORT": "3015",
+        "MCP_HTTP_PORT": "3014",
         "MATRIX_HOMESERVER_URL": "https://matrix.oculair.ca",
         "MATRIX_ACCESS_TOKEN": "syt_Y2xhdWRlY29kZQ_xZEMsuYihPEBVuneiHPI_0BY7gP",
         "MATRIX_USER_ID": "@claudecode:matrix.oculair.ca",

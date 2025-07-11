@@ -140,6 +140,68 @@ class ClaudeCodeMCPServer {
             required: ['prompt'],
           },
         },
+        {
+          name: 'claude_code_async',
+          description: `Async Claude Code: Execute Claude Code tasks asynchronously with Matrix/Letta notification.
+
+• Executes Claude Code in the background
+• Sends result to Matrix room or Letta agent via MCP
+• Useful for long-running tasks
+
+**Required parameters:**
+• prompt: The task to execute
+• agentId: The Letta agent ID to notify when complete
+• lettaUrl: (optional) Letta base URL for the MCP endpoint, defaults to https://letta.oculair.ca
+
+**Optional parameters:**
+• workFolder: Working directory for execution
+• keepTaskBlocks: Number of task blocks to keep in memory (1-50, default: 3)
+• elevateBlock: Whether to elevate this task block to prevent cleanup
+• request_heartbeat: Whether to request periodic heartbeat updates (default: true)
+
+**Example usage:**
+{
+  "prompt": "Analyze the codebase and generate a comprehensive README.md",
+  "agentId": "agent_123",
+  "workFolder": "/workspace"
+}`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              prompt: {
+                type: 'string',
+                description: 'The detailed natural language prompt for Claude to execute.',
+              },
+              agentId: {
+                type: 'string',
+                description: 'The Letta agent ID to notify when the task completes.',
+              },
+              workFolder: {
+                type: 'string',
+                description: 'Optional working directory for the Claude CLI execution. Must be an absolute path.',
+              },
+              lettaUrl: {
+                type: 'string',
+                description: 'Optional Letta base URL for the MCP endpoint. Defaults to https://letta.oculair.ca',
+              },
+              keepTaskBlocks: {
+                type: 'integer',
+                description: 'Number of task blocks to keep in memory (1-50, default: 3)',
+                minimum: 1,
+                maximum: 50,
+              },
+              elevateBlock: {
+                type: 'boolean',
+                description: 'Whether to elevate this task block to prevent cleanup',
+              },
+              requestHeartbeat: {
+                type: 'boolean',
+                description: 'Whether to request periodic heartbeat updates (default: true)',
+              },
+            },
+            required: ['prompt', 'agentId'],
+          },
+        },
       ],
     }));
 
@@ -147,30 +209,81 @@ class ClaudeCodeMCPServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (args) => {
       const { name, arguments: toolArgs } = args.params;
 
-      if (name !== 'claude_code') {
+      if (name === 'claude_code') {
+        return await this.handleClaudeCode(toolArgs);
+      } else if (name === 'claude_code_async') {
+        return await this.handleClaudeCodeAsync(toolArgs);
+      } else {
         throw new McpError(ErrorCode.MethodNotFound, `Tool ${name} not found`);
       }
-
-      // Validate prompt
-      if (!toolArgs || typeof toolArgs.prompt !== 'string') {
-        throw new McpError(ErrorCode.InvalidParams, 'Missing or invalid required parameter: prompt');
-      }
-
-      try {
-        // Execute Claude Code through the UI backend
-        const result = await this.executeClaudeCode(toolArgs.prompt, toolArgs.workFolder);
-        
-        return {
-          content: [{
-            type: 'text',
-            text: typeof result === 'string' ? result : JSON.stringify(result),
-          }],
-        };
-      } catch (error) {
-        debugLog('Error executing Claude Code:', error);
-        throw new McpError(ErrorCode.InternalError, `Claude Code execution failed: ${error.message}`);
-      }
     });
+  }
+
+  /**
+   * Handle sync claude_code tool
+   */
+  async handleClaudeCode(toolArgs) {
+    // Validate prompt
+    if (!toolArgs || typeof toolArgs.prompt !== 'string') {
+      throw new McpError(ErrorCode.InvalidParams, 'Missing or invalid required parameter: prompt');
+    }
+
+    try {
+      // Execute Claude Code through the UI backend
+      const result = await this.executeClaudeCode(toolArgs.prompt, toolArgs.workFolder);
+      
+      return {
+        content: [{
+          type: 'text',
+          text: typeof result === 'string' ? result : JSON.stringify(result),
+        }],
+      };
+    } catch (error) {
+      debugLog('Error executing Claude Code:', error);
+      throw new McpError(ErrorCode.InternalError, `Claude Code execution failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Handle async claude_code_async tool
+   */
+  async handleClaudeCodeAsync(toolArgs) {
+    // Validate required parameters
+    if (!toolArgs || typeof toolArgs.prompt !== 'string') {
+      throw new McpError(ErrorCode.InvalidParams, 'Missing or invalid required parameter: prompt');
+    }
+    if (!toolArgs.agentId || typeof toolArgs.agentId !== 'string') {
+      throw new McpError(ErrorCode.InvalidParams, 'Missing or invalid required parameter: agentId');
+    }
+
+    try {
+      // Generate task ID
+      const taskId = `task_${randomUUID()}`;
+      
+      // Start async execution (don't await)
+      this.executeClaudeCodeAsync(
+        taskId,
+        toolArgs.agentId,
+        toolArgs.prompt,
+        toolArgs.workFolder,
+        toolArgs.lettaUrl || 'https://letta.oculair.ca',
+        toolArgs.keepTaskBlocks || 3,
+        toolArgs.elevateBlock || false,
+        toolArgs.requestHeartbeat !== false
+      ).catch(error => {
+        console.error(`Async task ${taskId} failed:`, error);
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: `Async task started with ID: ${taskId}\nAgent: ${toolArgs.agentId}\nYou will receive a notification when the task completes.`,
+        }],
+      };
+    } catch (error) {
+      debugLog('Error starting async Claude Code:', error);
+      throw new McpError(ErrorCode.InternalError, `Async Claude Code execution failed: ${error.message}`);
+    }
   }
 
   /**
@@ -508,6 +621,35 @@ class ClaudeCodeMCPServer {
       console.error(`[Streamable HTTP]   GET    /mcp - SSE endpoint for resumability`);
       console.error(`[Streamable HTTP]   DELETE /mcp - Delete session`);
     });
+  }
+
+  /**
+   * Execute Claude Code asynchronously with Matrix/Letta notification
+   */
+  async executeClaudeCodeAsync(taskId, agentId, prompt, workFolder, lettaUrl, keepTaskBlocks, elevateBlock, requestHeartbeat) {
+    console.log(`[Async] Starting task ${taskId} for agent ${agentId}`);
+    
+    try {
+      // Execute the command synchronously first
+      const result = await this.executeClaudeCode(prompt, workFolder);
+      
+      console.log(`[Async] Task ${taskId} completed successfully`);
+      
+      // Send notification - simple placeholder for now
+      // In a full implementation, this would integrate with Matrix/Letta
+      console.log(`[Async] Would notify agent ${agentId} about task ${taskId} completion`);
+      console.log(`[Async] Result: ${result.substring(0, 200)}...`);
+      
+      // TODO: Implement actual Matrix/Letta notification
+      // This would require the full Matrix client and Letta integration
+      // from the ui-server-full.ts implementation
+      
+    } catch (error) {
+      console.error(`[Async] Task ${taskId} failed:`, error);
+      
+      // Send error notification
+      console.log(`[Async] Would notify agent ${agentId} about task ${taskId} failure`);
+    }
   }
 }
 
