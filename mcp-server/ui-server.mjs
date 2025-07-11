@@ -16,6 +16,7 @@ import WebSocket from 'ws';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { createMatrixBotFromEnv } from './matrix-client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +26,7 @@ const SERVER_VERSION = "1.0.0";
 const HTTP_PORT = process.env.MCP_HTTP_PORT || 3014;
 const UI_SERVER_URL = process.env.CLAUDE_UI_SERVER_URL || 'http://127.0.0.1:3012';
 const UI_WS_URL = process.env.CLAUDE_UI_WS_URL || 'ws://192.168.50.90:3012';
+const MCP_AUTH_TOKEN = process.env.MCP_AUTH_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInVzZXJuYW1lIjoiT2N1bGFpciIsImlhdCI6MTc1MjIxOTIxMn0.hCkVJcEwmCnusosaizXOBr2ttPL0KKXqMPXJhh4-AV0';
 
 // Debug mode
 const debugMode = process.env.MCP_CLAUDE_DEBUG === 'true';
@@ -82,6 +84,23 @@ class ClaudeCodeMCPServer {
 
     this.setupToolHandlers();
     this.server.onerror = (error) => console.error('[MCP Error]', error);
+    
+    // Initialize Matrix bot
+    this.initializeMatrixBot();
+  }
+
+  /**
+   * Initialize Matrix bot for notifications
+   */
+  async initializeMatrixBot() {
+    try {
+      this.matrixBot = createMatrixBotFromEnv();
+      await this.matrixBot.initialize();
+      console.log('[Matrix] Bot initialized successfully');
+    } catch (error) {
+      console.error('[Matrix] Failed to initialize bot:', error);
+      this.matrixBot = null;
+    }
   }
 
   /**
@@ -348,8 +367,8 @@ class ClaudeCodeMCPServer {
     return new Promise((resolve, reject) => {
       debugLog('Connecting to WebSocket...');
       
-      // Connect to the UI's WebSocket
-      const ws = new WebSocket(`${UI_WS_URL}/ws`);
+      // Connect to the UI's WebSocket with authentication token
+      const ws = new WebSocket(`${UI_WS_URL}/ws?token=${MCP_AUTH_TOKEN}`);
       let responseBuffer = '';
       let isComplete = false;
       let sessionId = null;
@@ -362,8 +381,8 @@ class ClaudeCodeMCPServer {
           type: 'claude-command',
           command: prompt,
           options: {
-            projectPath: workFolder || process.cwd(),
-            cwd: workFolder || process.cwd(), // Backend uses cwd for actual working directory
+            projectPath: workFolder || '/opt/stacks',
+            cwd: workFolder || '/opt/stacks', // Backend uses cwd for actual working directory
             projectName: projectName,
             sessionId: sessionId, // null for new session
             resume: false,
@@ -663,6 +682,39 @@ class ClaudeCodeMCPServer {
   }
 
   /**
+   * Get Matrix room ID for an agent from the mapping service
+   */
+  async getAgentMatrixRoom(agentId) {
+    try {
+      const mappingUrl = process.env.AGENT_ROOM_MAPPING_URL || 'http://192.168.50.90:3002';
+      console.log(`[Agent Mapping] Fetching primary room for agent: ${agentId}`);
+      
+      const response = await fetch(`${mappingUrl}/api/agent-room-mapping/${encodeURIComponent(agentId)}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log(`[Agent Mapping] No room mapping found for agent: ${agentId}`);
+          return null;
+        }
+        throw new Error(`Agent room mapping service error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.data && data.data.roomId) {
+        console.log(`[Agent Mapping] Primary room for agent ${agentId}: ${data.data.roomId}`);
+        return data.data.roomId;
+      }
+      
+      console.log(`[Agent Mapping] No primary room found for agent: ${agentId}`);
+      return null;
+    } catch (error) {
+      console.error(`[Agent Mapping] Error fetching primary room for agent ${agentId}:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Send async notification via Matrix/Letta
    */
   async sendAsyncNotification(data) {
@@ -670,32 +722,79 @@ class ClaudeCodeMCPServer {
     console.log(`[Async] Success: ${data.success}`);
     console.log(`[Async] Result: ${data.result.substring(0, 200)}...`);
     
-    // TODO: Implement actual Matrix/Letta notification
-    // For now, just log the notification details
-    // In a full implementation, this would:
-    // 1. Try to find Matrix room for agent
-    // 2. Send formatted message to Matrix room
-    // 3. Fallback to Letta HTTP callback if Matrix fails
-    
     try {
-      // Placeholder for Matrix notification
-      console.log(`[Async] Would send Matrix notification to room for agent ${data.agentId}`);
+      let notificationSent = false;
       
-      // Placeholder for Letta callback
-      console.log(`[Async] Would send Letta callback to ${data.callbackUrl}`);
+      // Try Matrix notification first
+      if (this.matrixBot) {
+        try {
+          const roomId = await this.getAgentMatrixRoom(data.agentId);
+          if (roomId) {
+            console.log(`[Matrix] Sending notification to room ${roomId} for agent ${data.agentId}`);
+            
+            const jobResult = {
+              taskId: data.taskId,
+              agentId: data.agentId,
+              success: data.success,
+              result: data.result,
+              error: data.error,
+              timestamp: new Date()
+            };
+            
+            await this.matrixBot.sendJobResult(roomId, jobResult);
+            console.log(`[Matrix] Notification sent successfully to room ${roomId}`);
+            notificationSent = true;
+          } else {
+            console.log(`[Matrix] No room found for agent ${data.agentId}, trying Letta fallback`);
+          }
+        } catch (error) {
+          console.error(`[Matrix] Failed to send Matrix notification:`, error);
+        }
+      } else {
+        console.log(`[Matrix] Matrix bot not available, trying Letta fallback`);
+      }
       
-      // Format the notification message
+      // Fallback to Letta HTTP callback if Matrix failed
+      if (!notificationSent) {
+        try {
+          const lettaResponse = await fetch(`${data.callbackUrl}/v1/agents/${data.agentId}/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.LETTA_PASSWORD || ''}`
+            },
+            body: JSON.stringify({
+              messages: [{
+                role: 'user',
+                content: `🔧 Claude Code Task Complete\n\nTask: ${data.taskId}\nStatus: ${data.success ? 'Success' : 'Failed'}\nResult: ${data.result}`
+              }]
+            })
+          });
+          
+          if (lettaResponse.ok) {
+            console.log(`[Letta] Fallback notification sent to agent ${data.agentId}`);
+            notificationSent = true;
+          } else {
+            console.error(`[Letta] Failed to send fallback notification: ${lettaResponse.status}`);
+          }
+        } catch (error) {
+          console.error(`[Letta] Fallback notification failed:`, error);
+        }
+      }
+      
+      // Log the notification details
       const notification = {
         taskId: data.taskId,
         agentId: data.agentId,
         success: data.success,
         timestamp: new Date().toISOString(),
         result: data.result,
+        notificationSent,
         ...(data.error && { error: data.error }),
         ...(data.executionTime && { executionTime: data.executionTime })
       };
       
-      console.log(`[Async] Notification sent:`, JSON.stringify(notification, null, 2));
+      console.log(`[Async] Notification ${notificationSent ? 'sent' : 'failed'}:`, JSON.stringify(notification, null, 2));
       
     } catch (error) {
       console.error(`[Async] Failed to send notification:`, error);
