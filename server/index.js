@@ -200,6 +200,26 @@ app.use('/api', validateApiKey);
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
 
+// Public project list endpoint (no auth required) - returns minimal info
+app.get('/api/public/projects/list', async (req, res) => {
+  try {
+    const projects = await getProjects();
+    const projectList = projects.map(project => ({
+      name: project.name,
+      path: project.path,
+      displayName: project.displayName
+    }));
+    
+    res.json({
+      projects: projectList,
+      total: projectList.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Git API Routes (protected)
 app.use('/api/git', authenticateToken, gitRoutes);
 
@@ -225,6 +245,29 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
   try {
     const projects = await getProjects();
     res.json(projects);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Simple project list endpoint - returns just names and paths
+app.get('/api/projects/list', authenticateToken, async (req, res) => {
+  try {
+    const projects = await getProjects();
+    const projectList = projects.map(project => ({
+      name: project.name,
+      path: project.path,
+      displayName: project.displayName,
+      sessionCount: project.sessions?.length || 0,
+      totalSessions: project.sessionMeta?.total || 0,
+      isManuallyAdded: project.isManuallyAdded || false
+    }));
+    
+    res.json({
+      projects: projectList,
+      total: projectList.length,
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
