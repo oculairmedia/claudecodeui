@@ -1,0 +1,1 @@
+Testing synchronous Claude Code tool - this should complete immediately!

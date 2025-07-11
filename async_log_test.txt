@@ -1,0 +1,1 @@
+Testing async Claude Code while monitoring logs - this should trigger callback notifications!

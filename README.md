@@ -168,14 +168,51 @@ Claude Code UI includes both sync and async MCP (Model Context Protocol) servers
 - **Port**: 3014
 - **Tools**: 
   - `claude_code` - Execute Claude Code commands synchronously
-  - `claude_code_async` - Execute Claude Code commands asynchronously with Matrix notifications
+  - `claude_code_async` - Execute Claude Code commands asynchronously with iteration support
 - **Features**:
   - Direct command execution with immediate response (sync)
   - Background task execution with notifications (async)
+  - **Iterative Workflows**: Checkpoint detection and session resume
+  - **Feedback Loops**: Pause at checkpoints for review/modification
   - Matrix bot integration for notifications
   - Letta agent memory management
   - Task persistence and tracking
   - Room-based notifications via @claudecode:matrix.oculair.ca
+
+##### Iteration and Feedback Features
+
+The async tool supports iterative workflows through:
+
+1. **Checkpoint Mode**: Pause execution when specific patterns are detected
+   ```json
+   {
+     "tool": "claude_code_async",
+     "arguments": {
+       "prompt": "Analyze the codebase. Pause after analysis for review.",
+       "agentId": "agent_123",
+       "interactionMode": "checkpoint",
+       "checkpointPattern": "Analysis complete|Ready for review"
+     }
+   }
+   ```
+
+2. **Session Resume**: Continue from where you left off
+   ```json
+   {
+     "tool": "claude_code_async",
+     "arguments": {
+       "prompt": "Good analysis. Now create documentation.",
+       "agentId": "agent_123",
+       "sessionId": "session-id-from-notification"
+     }
+   }
+   ```
+
+3. **Notification Format**: Enhanced notifications include session state
+   - Session ID for resuming
+   - Checkpoint status
+   - Continuation instructions
+   - Iteration count
 
 ### MCP Configuration
 

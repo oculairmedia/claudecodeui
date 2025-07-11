@@ -1,4 +1,5 @@
 const { spawn } = require('child_process');
+const claudeStatusTracker = require('./claude-status-tracker');
 
 let activeClaudeProcesses = new Map(); // Track active processes by session ID
 
@@ -79,6 +80,18 @@ async function spawnClaude(command, options = {}, ws) {
     const processKey = capturedSessionId || sessionId || Date.now().toString();
     activeClaudeProcesses.set(processKey, claudeProcess);
     
+    // Track job in status tracker
+    const jobId = `claude-${processKey}`;
+    claudeStatusTracker.startJob(jobId, {
+      type: 'claude-cli',
+      command: command?.slice(0, 100), // Truncate long commands
+      projectPath: projectPath,
+      workingDir: workingDir,
+      sessionId: sessionId,
+      resume: resume,
+      toolsSettings: settings
+    });
+    
     // Handle stdout (streaming JSON responses)
     claudeProcess.stdout.on('data', (data) => {
       const rawOutput = data.toString();
@@ -102,6 +115,12 @@ async function spawnClaude(command, options = {}, ws) {
               activeClaudeProcesses.set(capturedSessionId, claudeProcess);
             }
             
+            // Update job with session ID
+            claudeStatusTracker.updateJob(jobId, { 
+              sessionId: capturedSessionId,
+              capturedAt: new Date()
+            });
+            
             // Send session-created event only once for new sessions
             if (!sessionId && !sessionCreatedSent) {
               sessionCreatedSent = true;
@@ -110,6 +129,14 @@ async function spawnClaude(command, options = {}, ws) {
                 sessionId: capturedSessionId
               }));
             }
+          }
+          
+          // Track tool usage and other events
+          if (response.tool_use) {
+            claudeStatusTracker.updateJob(jobId, { 
+              lastTool: response.tool_use.name,
+              toolCallCount: (claudeStatusTracker.getJob(jobId)?.toolCallCount || 0) + 1
+            });
           }
           
           // Send parsed response to WebSocket
@@ -145,6 +172,13 @@ async function spawnClaude(command, options = {}, ws) {
       const finalSessionId = capturedSessionId || sessionId || processKey;
       activeClaudeProcesses.delete(finalSessionId);
       
+      // Complete job in status tracker
+      claudeStatusTracker.completeJob(jobId, {
+        exitCode: code,
+        finalSessionId: finalSessionId,
+        error: code !== 0 ? `Process exited with code ${code}` : null
+      });
+      
       ws.send(JSON.stringify({
         type: 'claude-complete',
         exitCode: code,
@@ -165,6 +199,12 @@ async function spawnClaude(command, options = {}, ws) {
       // Clean up process reference on error
       const finalSessionId = capturedSessionId || sessionId || processKey;
       activeClaudeProcesses.delete(finalSessionId);
+      
+      // Complete job with error in status tracker
+      claudeStatusTracker.completeJob(jobId, {
+        error: error.message,
+        errorType: 'process-error'
+      });
       
       ws.send(JSON.stringify({
         type: 'claude-error',
@@ -194,6 +234,11 @@ function abortClaudeSession(sessionId) {
   const process = activeClaudeProcesses.get(sessionId);
   if (process) {
     console.log(`🛑 Aborting Claude session: ${sessionId}`);
+    
+    // Abort job in status tracker
+    const jobId = `claude-${sessionId}`;
+    claudeStatusTracker.abortJob(jobId);
+    
     process.kill('SIGTERM');
     activeClaudeProcesses.delete(sessionId);
     return true;

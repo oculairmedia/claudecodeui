@@ -1,0 +1,1 @@
+Testing async Claude Code with Matrix bot integration - notifications should work perfectly now!

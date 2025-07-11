@@ -36,6 +36,26 @@ const gitRoutes = require('./routes/git');
 const authRoutes = require('./routes/auth');
 const { initializeDatabase } = require('./database/db');
 const { validateApiKey, authenticateToken, authenticateWebSocket } = require('./middleware/auth');
+const claudeStatusTracker = require('./claude-status-tracker');
+
+// Broadcast status updates to all connected clients
+function broadcastStatusUpdate(updateType, data) {
+  const statusMessage = JSON.stringify({
+    type: 'claude_status_update',
+    updateType,
+    data,
+    timestamp: new Date().toISOString()
+  });
+  
+  connectedClients.forEach(client => {
+    if (client.readyState === client.OPEN) {
+      client.send(statusMessage);
+    }
+  });
+}
+
+// Export for use in claude-cli
+global.broadcastStatusUpdate = broadcastStatusUpdate;
 
 // File system watcher for projects folder
 let projectsWatcher = null;
@@ -659,6 +679,41 @@ function handleShellConnection(ws) {
     console.error('❌ Shell WebSocket error:', error);
   });
 }
+// Claude Code status endpoint
+app.get('/api/claude-status', authenticateToken, async (req, res) => {
+  try {
+    // Get status from both UI server and MCP server
+    const status = {
+      timestamp: new Date().toISOString(),
+      activeJobs: claudeStatusTracker.getActiveJobs(),
+      stats: claudeStatusTracker.getStats(),
+      system: {
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        platform: process.platform,
+        nodeVersion: process.version
+      }
+    };
+    
+    // Try to get MCP server status if available
+    try {
+      const mcpResponse = await fetch('http://localhost:3014/status', {
+        headers: { 'Authorization': `Bearer ${process.env.MCP_AUTH_TOKEN}` }
+      });
+      if (mcpResponse.ok) {
+        status.mcpServer = await mcpResponse.json();
+      }
+    } catch (mcpError) {
+      status.mcpServer = { error: 'MCP server not reachable' };
+    }
+    
+    res.json(status);
+  } catch (error) {
+    console.error('Error getting Claude status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Audio transcription endpoint
 app.post('/api/transcribe', authenticateToken, async (req, res) => {
   try {
