@@ -227,12 +227,34 @@ export class ClaudeStatusMemory {
       lines.push(`\n🔄 Active Jobs: ${agentJobs.length}`);
       agentJobs.forEach(job => {
         const runtime = Math.round((Date.now() - new Date(job.startTime)) / 1000);
-        lines.push(`  • ${job.id.slice(0, 12)}... (${runtime}s) - ${job.command?.slice(0, 50) || 'No command'}${job.command?.length > 50 ? '...' : ''}`);
+        lines.push(`\n  📍 Job: ${job.id}`);
+        lines.push(`     Runtime: ${runtime}s`);
         if (job.sessionId) {
-          lines.push(`    Session: ${job.sessionId}`);
+          lines.push(`     Session ID: ${job.sessionId}`);
+        }
+        if (job.projectPath) {
+          lines.push(`     Project: ${job.projectPath}`);
+        }
+        if (job.workingDir) {
+          lines.push(`     Working Dir: ${job.workingDir}`);
+        }
+        if (job.command) {
+          lines.push(`     Command: ${job.command.slice(0, 60)}${job.command.length > 60 ? '...' : ''}`);
+        }
+        if (job.type) {
+          lines.push(`     Type: ${job.type}`);
         }
         if (job.lastTool) {
-          lines.push(`    Last tool: ${job.lastTool}`);
+          lines.push(`     Last Tool: ${job.lastTool}`);
+        }
+        if (job.toolCallCount) {
+          lines.push(`     Tool Calls: ${job.toolCallCount}`);
+        }
+        if (job.resumed) {
+          lines.push(`     Resumed: Yes`);
+        }
+        if (job.checkpoint) {
+          lines.push(`     Checkpoint: ${job.checkpoint}`);
         }
       });
     } else {
@@ -248,6 +270,37 @@ export class ClaudeStatusMemory {
     lines.push(`  • Avg duration: ${Math.round(stats.averageJobDuration / 1000)}s`);
     lines.push(`  • Checkpoints hit: ${stats.checkpointHitCount}`);
     lines.push(`  • Sessions resumed: ${stats.sessionResumeCount}`);
+    
+    // Add recent completed jobs
+    const recentJobs = this.statusTracker.getCompletedJobs(5).filter(job => 
+      job.agentId === agentId || !job.agentId
+    );
+    
+    if (recentJobs.length > 0) {
+      lines.push(`\n📝 Recent Completed Jobs:`);
+      recentJobs.forEach(job => {
+        const duration = job.duration ? Math.round(job.duration / 1000) : 0;
+        const status = job.status === 'failed' ? '❌' : job.status === 'aborted' ? '🚫' : '✅';
+        lines.push(`\n  ${status} Job: ${job.id}`);
+        if (job.finalSessionId || job.sessionId) {
+          lines.push(`     Session ID: ${job.finalSessionId || job.sessionId}`);
+        }
+        if (job.projectPath) {
+          lines.push(`     Project: ${job.projectPath}`);
+        }
+        if (job.workingDir) {
+          lines.push(`     Working Dir: ${job.workingDir}`);
+        }
+        lines.push(`     Duration: ${duration}s`);
+        lines.push(`     Status: ${job.status}`);
+        if (job.command) {
+          lines.push(`     Command: ${job.command.slice(0, 60)}${job.command.length > 60 ? '...' : ''}`);
+        }
+        if (job.result?.error) {
+          lines.push(`     Error: ${job.result.error.slice(0, 60)}${job.result.error.length > 60 ? '...' : ''}`);
+        }
+      });
+    }
     
     return lines.join('\n');
   }
